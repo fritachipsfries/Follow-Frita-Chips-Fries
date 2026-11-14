@@ -85,12 +85,12 @@ const P = [
   {id:'yt', name:'YouTube', ar:'يوتيوب', url:'https://www.youtube.com/@fritachipsfries', bg:'#FF0000',
    svg:'<svg viewBox="0 0 24 24"><path d="M23 7.2a3 3 0 00-2.1-2.1C19 4.6 12 4.6 12 4.6s-7 0-8.9.5A3 3 0 001 7.2 31 31 0 00.5 12a31 31 0 00.5 4.8 3 3 0 002.1 2.1c1.9.5 8.9.5 8.9.5s7 0 8.9-.5a3 3 0 002.1-2.1 31 31 0 00.5-4.8 31 31 0 00-.5-4.8zM9.7 15.1V8.9l5.8 3.1-5.8 3.1z"/></svg>'}
 ];
-const MIN_AWAY = 4000; // لازم يقعد 4 ثواني على الأقل في التطبيق
+const MIN_AWAY = 1500;   // يكفي ثانية ونص بره الصفحة
+const TOTAL_WAIT = 2500;   // أو ثانيتين ونص من لحظة الضغط على المنصة
 const KEY = 'frita_follow_v1';
-let S = {done:{}, code:null, claimed:false};
+let S = {done:{}, code:null, claimed:false, pending:null};
 try{ const s = JSON.parse(localStorage.getItem(KEY)||'null'); if(s) S = Object.assign(S,s);}catch(e){}
 const save = ()=>{ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} };
-let pending = null; // {id, t, hiddenAt}
 
 const $ = id => document.getElementById(id);
 function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.remove('show'),2800); }
@@ -100,7 +100,7 @@ function render(){
   let n=0;
   P.forEach(p=>{
     const d = !!S.done[p.id]; if(d) n++;
-    const w = pending && pending.id===p.id && !d;
+    const w = S.pending && S.pending.id===p.id && !d;
     const b = document.createElement('a');
     b.href = p.url; b.target = '_blank'; b.rel = 'noopener';
     b.className = 'btn' + (d?' done':'') + (w?' wait':'');
@@ -120,25 +120,32 @@ function render(){
 
 function go(p,e){
   if(S.done[p.id]) { e.preventDefault(); toast(`${p.ar} متسجّلة خلاص ✅`); return; }
-  pending = {id:p.id, t:Date.now(), hiddenAt:null};
+  S.pending = {id:p.id, t:Date.now(), awayAt:null}; save();
   setTimeout(render, 50);
 }
 
-document.addEventListener('visibilitychange', ()=>{
-  if(!pending) return;
-  if(document.hidden){ pending.hiddenAt = Date.now(); return; }
-  // رجع للصفحة
-  const p = P.find(x=>x.id===pending.id);
-  const away = pending.hiddenAt ? Date.now()-pending.hiddenAt : 0;
-  if(away >= MIN_AWAY){
-    S.done[p.id] = true; save(); pending=null; render();
+function markAway(){
+  if(S.pending && !S.pending.awayAt){ S.pending.awayAt = Date.now(); save(); }
+}
+function tryComplete(){
+  const pd = S.pending; if(!pd) return;
+  const p = P.find(x=>x.id===pd.id); if(!p){ S.pending=null; save(); return; }
+  const now = Date.now();
+  const ok = (now - pd.t >= TOTAL_WAIT) || (pd.awayAt && now - pd.awayAt >= MIN_AWAY);
+  if(ok){
+    S.done[p.id] = true; S.pending = null; save(); render();
     const left = P.filter(x=>!S.done[x.id]);
     toast(left.length? `تم ${p.ar} ✅ باقي ${left.length}` : 'تمام! خلصت كل المنصات 🎉');
-  } else {
-    pending = null; render();
+  } else if(pd.awayAt){
+    S.pending = null; save(); render();
     toast(`رجعت بسرعة! افتح ${p.ar} تاني واعمل فولو`);
   }
-});
+}
+document.addEventListener('visibilitychange', ()=>{ document.hidden ? markAway() : setTimeout(tryComplete, 150); });
+window.addEventListener('blur', markAway);
+window.addEventListener('pagehide', markAway);
+window.addEventListener('focus', ()=>setTimeout(tryComplete, 150));
+window.addEventListener('pageshow', ()=>setTimeout(tryComplete, 150));
 
 function showOk(){
   if(!S.code){ S.code = String(Math.floor(1000+Math.random()*9000)); save(); }
@@ -165,6 +172,7 @@ $('staff').onclick = ()=>{
   clearTimeout(armT); S.claimed = true; save(); markClaimed();
 };
 render();
+setTimeout(tryComplete, 300);
 </script>
 
 </body></html>
